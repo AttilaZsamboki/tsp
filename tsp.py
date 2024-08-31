@@ -9,7 +9,13 @@ num_cities = 15
 time_slots_per_day = list(range(8, 18))
 starting_city = 0
 
-fixed_destionations = [{"id": 1, "day": 0, "time": 10}, {"id": 2, "day": 1, "time": 14}]
+fixed_destionations = [
+    {"id": 1, "day": 0, "time": 10},
+    {"id": 2, "day": 1, "time": 14},
+    {"id": 11, "day": 5, "time": 12},
+    {"id": 10, "day": 7, "time": 15},
+    {"id": 12, "day": 8, "time": 11},
+]
 semi_fixed_destinations = [
     {"id": 3, "options": [(0, 11), (2, 10), (1, 10)]},
     {"id": 4, "options": [(2, 15), (3, 13), (4, 12)]},
@@ -21,8 +27,6 @@ free_destinations = [
     {"id": 5},
     {"id": 6},
     {"id": 8},
-    {"id": 11},
-    {"id": 12},
     {"id": 14},
 ]
 
@@ -49,7 +53,6 @@ for destination in free_destinations:
     )
     free_vars[destination["id"]] = (day_var, time_var)
 
-semi_fixed_slack = model.NewBoolVar("semi_fixed_slack")
 
 semi_fixed_vars = {}
 for destination in semi_fixed_destinations:
@@ -187,29 +190,43 @@ for day in days:
 for day in days:
     for i in range(n):
         for j in range(n):
-            if i in free_vars.keys():
-                if j in free_vars.keys():
-                    if i != j:
+            if i != j:
+                if i in free_vars.keys():
+                    if j in free_vars.keys():
                         model.Add(free_vars[i][1] < free_vars[j][1]).OnlyEnforceIf(
                             tsp_vars[(i, j, day)]
                         )
-            for semi_id, option_vars in semi_fixed_vars.items():
-                for option_index, (option_day, option_time) in enumerate(
-                    [t for t in semi_fixed_destinations if semi_id == t["id"]][0][
-                        "options"
-                    ]
-                ):
-                    if option_day == day:
-                        if i == semi_id:
-                            if j in free_vars.keys():
-                                model.Add(option_time < free_vars[j][1]).OnlyEnforceIf(
-                                    option_vars[option_index]
-                                ).OnlyEnforceIf(tsp_vars[(i, j, day)])
-                        if j == semi_id:
-                            if i in free_vars.keys():
-                                model.Add(free_vars[i][1] < option_time).OnlyEnforceIf(
-                                    option_vars[option_index]
-                                ).OnlyEnforceIf(tsp_vars[(i, j, day)])
+                for semi_id, option_vars in semi_fixed_vars.items():
+                    for option_index, (option_day, option_time) in enumerate(
+                        [t for t in semi_fixed_destinations if semi_id == t["id"]][0][
+                            "options"
+                        ]
+                    ):
+                        if option_day == day:
+                            if i == semi_id:
+                                if j in free_vars.keys():
+                                    model.Add(
+                                        option_time < free_vars[j][1]
+                                    ).OnlyEnforceIf(
+                                        option_vars[option_index]
+                                    ).OnlyEnforceIf(
+                                        tsp_vars[(i, j, day)]
+                                    )
+                            if j == semi_id:
+                                if i in free_vars.keys():
+                                    model.Add(
+                                        free_vars[i][1] < option_time
+                                    ).OnlyEnforceIf(
+                                        option_vars[option_index]
+                                    ).OnlyEnforceIf(
+                                        tsp_vars[(i, j, day)]
+                                    )
+
+                if i in semi_fixed_vars and j in semi_fixed_vars:
+                    if i != j:
+                        model.Add(
+                            semi_fixed_vars[i] < semi_fixed_vars[j]
+                        ).OnlyEnforceIf(tsp_vars[(i, j, day)])
 
 model.Minimize(
     sum(
