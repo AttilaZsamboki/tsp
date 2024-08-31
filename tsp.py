@@ -1,38 +1,30 @@
 from ortools.sat.python import cp_model
 import matplotlib.pyplot as plt
 import networkx as nx
-from random import uniform
+import random
 
 # Define the data
-L = 10
-num_cities = 25
-days = range(6)
+days = range(10)
+num_cities = 15
 time_slots_per_day = list(range(8, 18))
-cities = range(num_cities)
 starting_city = 0
 
 fixed_destionations = [{"id": 1, "day": 0, "time": 10}, {"id": 2, "day": 1, "time": 14}]
 semi_fixed_destinations = [
     {"id": 3, "options": [(0, 11), (2, 10), (1, 10)]},
     {"id": 4, "options": [(2, 15), (3, 13), (4, 12)]},
+    {"id": 7, "options": [(5, 8), (1, 13), (0, 12)]},
+    {"id": 9, "options": [(6, 12), (2, 15), (2, 14)]},
+    {"id": 13, "options": [(7, 11), (9, 8), (2, 15)]},
 ]
 free_destinations = [
     {"id": 5},
     {"id": 6},
+    {"id": 8},
+    {"id": 11},
+    {"id": 12},
+    {"id": 14},
 ]
-distance_matrix = [
-    [0, 10, 15, 20, 25, 30, 20, 0, 0, 0],
-    [10, 0, 35, 25, 30, 15, 5, 0, 0, 0],
-    [15, 35, 0, 30, 20, 10, 15, 0, 0, 0],
-    [20, 25, 30, 0, 15, 25, 40, 0, 0, 0],
-    [25, 30, 20, 15, 0, 20, 15, 0, 0, 0],
-    [30, 15, 10, 25, 20, 0, 5, 0, 0, 0],
-    [20, 5, 15, 40, 15, 5, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-]
-# Generate random distance matrix
 
 distance_matrix = []
 for i in range(num_cities):
@@ -44,10 +36,6 @@ for i in range(num_cities):
             row.append(random.randint(1, 100))
     distance_matrix.append(row)
 
-# Print the generated distance matrix
-print("Generated Distance Matrix:")
-for row in distance_matrix:
-    print(row)
 n = len(distance_matrix)
 
 
@@ -198,13 +186,30 @@ for day in days:
 
 for day in days:
     for i in range(n):
-        if i in free_vars.keys():
-            for j in range(n):
+        for j in range(n):
+            if i in free_vars.keys():
                 if j in free_vars.keys():
                     if i != j:
                         model.Add(free_vars[i][1] < free_vars[j][1]).OnlyEnforceIf(
                             tsp_vars[(i, j, day)]
                         )
+            for semi_id, option_vars in semi_fixed_vars.items():
+                for option_index, (option_day, option_time) in enumerate(
+                    [t for t in semi_fixed_destinations if semi_id == t["id"]][0][
+                        "options"
+                    ]
+                ):
+                    if option_day == day:
+                        if i == semi_id:
+                            if j in free_vars.keys():
+                                model.Add(option_time < free_vars[j][1]).OnlyEnforceIf(
+                                    option_vars[option_index]
+                                ).OnlyEnforceIf(tsp_vars[(i, j, day)])
+                        if j == semi_id:
+                            if i in free_vars.keys():
+                                model.Add(free_vars[i][1] < option_time).OnlyEnforceIf(
+                                    option_vars[option_index]
+                                ).OnlyEnforceIf(tsp_vars[(i, j, day)])
 
 model.Minimize(
     sum(
