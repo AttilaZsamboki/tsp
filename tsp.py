@@ -6,7 +6,7 @@ from random import uniform
 # Define the data
 L = 10
 num_cities = 25
-days = range(5)
+days = range(6)
 time_slots_per_day = list(range(8, 18))
 cities = range(num_cities)
 starting_city = 0
@@ -21,19 +21,36 @@ free_destinations = [
     {"id": 6},
 ]
 distance_matrix = [
-    # Matrix of distances between destinations
-    # (This should be populated based on actual distances between the points)
-    [0, 10, 15, 20, 25, 30],
-    [10, 0, 35, 25, 30, 15],
-    [15, 35, 0, 30, 20, 10],
-    [20, 25, 30, 0, 15, 25],
-    [25, 30, 20, 15, 0, 20],
-    [30, 15, 10, 25, 20, 0],
+    [0, 10, 15, 20, 25, 30, 20, 0, 0, 0],
+    [10, 0, 35, 25, 30, 15, 5, 0, 0, 0],
+    [15, 35, 0, 30, 20, 10, 15, 0, 0, 0],
+    [20, 25, 30, 0, 15, 25, 40, 0, 0, 0],
+    [25, 30, 20, 15, 0, 20, 15, 0, 0, 0],
+    [30, 15, 10, 25, 20, 0, 5, 0, 0, 0],
+    [20, 5, 15, 40, 15, 5, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
 ]
+# Generate random distance matrix
+
+distance_matrix = []
+for i in range(num_cities):
+    row = []
+    for j in range(num_cities):
+        if i == j:
+            row.append(0)
+        else:
+            row.append(random.randint(1, 100))
+    distance_matrix.append(row)
+
+# Print the generated distance matrix
+print("Generated Distance Matrix:")
+for row in distance_matrix:
+    print(row)
 n = len(distance_matrix)
 
 
-# Create the model
 model = cp_model.CpModel()
 
 free_vars = {}
@@ -43,6 +60,8 @@ for destination in free_destinations:
         min(time_slots_per_day), max(time_slots_per_day), f"time_{destination['id']}"
     )
     free_vars[destination["id"]] = (day_var, time_var)
+
+semi_fixed_slack = model.NewBoolVar("semi_fixed_slack")
 
 semi_fixed_vars = {}
 for destination in semi_fixed_destinations:
@@ -106,75 +125,87 @@ for day in days:
             if i != j:
                 tsp_vars[(i, j, day)] = model.NewBoolVar(f"tsp_{i}_{j}_day_{day}")
 
-# for day in days:
-#     model.Add(
-#         sum(tsp_vars[(starting_city, j, day)] for j in range(1, n)) == 1
-#     )  # Start from depot
-#     model.Add(sum(tsp_vars[(i, starting_city, day)] for i in range(1, n)) == 1)
-
-# Subtour elimination (Lazy constraints could be used here for large problems)
-# A simplified approach using a "big-M" method
-# for day in days:
-#     u = [model.NewIntVar(0, n - 1, f"u_{i}_day_{day}") for i in range(n)]
-#     for i in range(1, n):
-#         for j in range(1, n):
-#             if i != j:
-#                 model.Add(u[i] - u[j] + (n - 1) * tsp_vars[(i, j, day)] <= n - 2)
-
-# for i in range(1, n):
-#     model.Add(
-#         sum(tsp_vars[(i, j, day)] for day in days for j in range(n) if i != j) == 1
-#     )
-#     model.Add(
-#         sum(tsp_vars[(j, i, day)] for day in days for j in range(n) if i != j) == 1
-#     )
-
-
-# Link TSP route choices with scheduling (i.e., only allow routes on selected days)
 for day in days:
-    for i in range(n):  # not considering depot
-        for j in range(n):  # not considering depot
+    condition_var = model.NewBoolVar(f"condition_var_{day}")
+    trips_planned = sum(
+        tsp_vars[(i, j, day)] for i in range(n) for j in range(n) if i != j
+    )
+
+    model.Add(trips_planned >= 1).OnlyEnforceIf(condition_var)
+    model.Add(trips_planned == 0).OnlyEnforceIf(condition_var.Not())
+
+    model.Add(
+        sum(tsp_vars[(starting_city, j, day)] for j in range(1, n)) == 1
+    ).OnlyEnforceIf(condition_var)
+    model.Add(
+        sum(tsp_vars[(j, starting_city, day)] for j in range(1, n)) == 1
+    ).OnlyEnforceIf(condition_var)
+
+for day in days:
+    u = [model.NewIntVar(0, n - 1, f"u_{i}_day_{day}") for i in range(n)]
+    for i in range(1, n):
+        for j in range(1, n):
             if i != j:
-                pass
-                # Link with free destinations
-                # if i in free_vars:
-                #     day_var = model.NewBoolVar(f"day_var_{i}_{day}")
-                #     model.Add(free_vars[i][0] == day).OnlyEnforceIf(day_var)
+                model.Add(u[i] - u[j] + (n - 1) * tsp_vars[(i, j, day)] <= n - 2)
 
-                #     model.Add(tsp_vars[(i, j, day)] == 1).OnlyEnforceIf(day_var)
-                #     model.Add(tsp_vars[(i, j, day)] == 0).OnlyEnforceIf(day_var.Not())
+for i in range(1, n):
+    model.Add(
+        sum(tsp_vars[(i, j, day)] for day in days for j in range(n) if i != j) == 1
+    )
+    model.Add(
+        sum(tsp_vars[(j, i, day)] for day in days for j in range(n) if i != j) == 1
+    )
 
-                # if j in free_vars:
-                #     day_var = model.NewBoolVar(f"day_var_{j}_{day}")
-                #     model.Add(free_vars[j][0] == day).OnlyEnforceIf(day_var)
 
-                #     model.Add(tsp_vars[(i, j, day)] == 1).OnlyEnforceIf(day_var)
-                #     model.Add(tsp_vars[(i, j, day)] == 0).OnlyEnforceIf(day_var.Not())
+for day in days:
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                if i in free_vars.keys():
+                    day_var = model.NewBoolVar(f"day_var_{i}_{day}")
+                    model.Add(free_vars[i][0] == day).OnlyEnforceIf(day_var)
 
-                # Link with semi-fixed destinations
-                for option_index, (option_day, _) in enumerate(
-                    semi_fixed_destinations[0]["options"]
-                ):
-                    if i in semi_fixed_vars.keys():
+                    model.Add(tsp_vars[(i, j, day)] == 1).OnlyEnforceIf(day_var)
+                    model.Add(tsp_vars[(i, j, day)] == 0).OnlyEnforceIf(day_var.Not())
+
+                if j in free_vars.keys():
+                    day_var2 = model.NewBoolVar(f"day_var_{j}_{day}")
+                    model.Add(free_vars[j][0] == day).OnlyEnforceIf(day_var2)
+
+                    model.Add(tsp_vars[(i, j, day)] == 1).OnlyEnforceIf(day_var2)
+                    model.Add(tsp_vars[(i, j, day)] == 0).OnlyEnforceIf(day_var2.Not())
+
+                if i in semi_fixed_vars:
+                    for option_index, (option_day, _) in enumerate(
+                        [t for t in semi_fixed_destinations if i == t["id"]][0][
+                            "options"
+                        ]
+                    ):
                         if option_day == day:
-                            model.Add(tsp_vars[(i, j, day)] == 1).OnlyEnforceIf(
-                                semi_fixed_vars[i][option_index]
-                            )
-                        else:
-                            model.Add(tsp_vars[(i, j, option_day)] == 0).OnlyEnforceIf(
-                                semi_fixed_vars[i][option_index].Not()
-                            )
-                    if j in semi_fixed_vars.keys():
-                        if option_day == day:
-                            model.Add(tsp_vars[(i, j, day)] == 1).OnlyEnforceIf(
-                                semi_fixed_vars[j][option_index]
-                            )
-                        else:
-                            model.Add(tsp_vars[(i, j, option_day)] == 0).OnlyEnforceIf(
-                                semi_fixed_vars[j][option_index].Not()
-                            )
+                            model.Add(
+                                sum(tsp_vars[(i, t, day)] for t in range(n) if i != t)
+                                == 1
+                            ).OnlyEnforceIf(semi_fixed_vars[i][option_index])
+                            model.Add(
+                                sum(tsp_vars[(t, i, day)] for t in range(n) if i != t)
+                                == 1
+                            ).OnlyEnforceIf(semi_fixed_vars[i][option_index])
 
-# Objective: Minimize total travel distance across all days
+                            model.Add(
+                                sum(tsp_vars[(t, i, day)] for t in range(n) if i != t)
+                                == 0
+                            ).OnlyEnforceIf(semi_fixed_vars[i][option_index].Not())
+
+for day in days:
+    for i in range(n):
+        if i in free_vars.keys():
+            for j in range(n):
+                if j in free_vars.keys():
+                    if i != j:
+                        model.Add(free_vars[i][1] < free_vars[j][1]).OnlyEnforceIf(
+                            tsp_vars[(i, j, day)]
+                        )
+
 model.Minimize(
     sum(
         distance_matrix[i][j] * tsp_vars[(i, j, day)]
@@ -185,21 +216,17 @@ model.Minimize(
     )
 )
 
-# Solve the model
 solver = cp_model.CpSolver()
 status = solver.Solve(model)
 
-# Output the result
 if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
     print("Solution found:")
 
-    # Print the assignments for free destinations
     for free_id, (day_var, time_var) in free_vars.items():
         print(
             f"Free Destination {free_id}: Day {solver.Value(day_var)}, Time {solver.Value(time_var)}"
         )
 
-        # Print the assignments for semi-fixed destinations
     for semi_id, option_vars in semi_fixed_vars.items():
         chosen_option = [i for i, var in enumerate(option_vars) if solver.Value(var)]
         if chosen_option:
@@ -208,12 +235,10 @@ if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
             ][chosen_option[0]]
             print(f"Semi-Fixed Destination {semi_id}: Day {day}, Time {time}")
 
-    # Visualize the solution
     G = nx.Graph()
     G.add_nodes_from(range(n))
     routes = []
 
-    # Print the TSP routes
     for day in days:
         print(f"Day {day} route:")
         for i in range(n):
