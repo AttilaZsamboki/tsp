@@ -4,30 +4,21 @@ import networkx as nx
 import random
 
 # Define the data
-days = range(10)
-num_cities = 15
+days = range(5)
+num_cities = 6
 time_slots_per_day = list(range(8, 18))
 starting_city = 0
 
 fixed_destionations = [
     {"id": 1, "day": 0, "time": 10},
     {"id": 2, "day": 1, "time": 14},
-    {"id": 11, "day": 5, "time": 12},
-    {"id": 10, "day": 7, "time": 15},
-    {"id": 12, "day": 8, "time": 11},
 ]
 semi_fixed_destinations = [
     {"id": 3, "options": [(0, 11), (2, 10), (1, 10)]},
     {"id": 4, "options": [(2, 15), (3, 13), (4, 12)]},
-    {"id": 7, "options": [(5, 8), (1, 13), (0, 12)]},
-    {"id": 9, "options": [(6, 12), (2, 15), (2, 14)]},
-    {"id": 13, "options": [(7, 11), (9, 8), (2, 15)]},
 ]
 free_destinations = [
     {"id": 5},
-    {"id": 6},
-    {"id": 8},
-    {"id": 14},
 ]
 
 distance_matrix = []
@@ -42,6 +33,7 @@ for i in range(num_cities):
 
 n = len(distance_matrix)
 
+job_duration = 120
 
 model = cp_model.CpModel()
 
@@ -228,6 +220,46 @@ for day in days:
                             semi_fixed_vars[i] < semi_fixed_vars[j]
                         ).OnlyEnforceIf(tsp_vars[(i, j, day)])
 
+for day in days:
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                travel_time = distance_matrix[i][j]
+                end_time_i = model.NewIntVar(
+                    min(time_slots_per_day) * 60,
+                    max(time_slots_per_day) * 60,
+                    f"end_time_{i}_day_{day}",
+                )
+                start_time_j = model.NewIntVar(
+                    min(time_slots_per_day) * 60,
+                    max(time_slots_per_day) * 60,
+                    f"start_time_{j}_day_{day}",
+                )
+                if i in free_vars.keys():
+                    model.Add(end_time_i == free_vars[i][1] * 60 + job_duration)
+                elif i in semi_fixed_vars:
+                    for option_index, (option_day, option_time) in enumerate(
+                        [t for t in semi_fixed_destinations if i == t["id"]][0][
+                            "options"
+                        ]
+                    ):
+                        if option_day == day:
+                            model.Add(end_time_i == option_time * 60 + job_duration)
+
+                if j in free_vars.keys():
+                    model.Add(start_time_j == free_vars[j][1] * 60)
+                elif j in semi_fixed_vars:
+                    for option_index, (option_day, option_time) in enumerate(
+                        [t for t in semi_fixed_destinations if j == t["id"]][0][
+                            "options"
+                        ]
+                    ):
+                        if option_day == day:
+                            model.Add(start_time_j == option_time * 60)
+                model.Add(start_time_j >= end_time_i + travel_time).OnlyEnforceIf(
+                    tsp_vars[(i, j, day)]
+                )
+
 model.Minimize(
     sum(
         distance_matrix[i][j] * tsp_vars[(i, j, day)]
@@ -268,6 +300,8 @@ if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
                 if i != j and solver.Value(tsp_vars[(i, j, day)]):
                     routes.append((i, j))
                     print(f"Travel from {i} to {j}")
+                    print(f"Travel time: {distance_matrix[i][j]} min")
+
     G.add_edges_from(routes)
     nx.draw(G, with_labels=True)
     plt.title("Traveling Salesman Problem Solution")
